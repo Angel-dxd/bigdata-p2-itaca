@@ -1,12 +1,9 @@
-# Proyecto N · [bigdata-p1-itaca]
-
-> **Plantilla.** Sustituye todo lo que va entre corchetes y borra las indicaciones en cursiva a medida que completes cada sección. Borra también las secciones de bloques que tu proyecto no trabaje.
+# Proyecto 2 · Analítica académica ITACA (origen relacional)
 
 ## Descripción y objetivo
 
-*Dos o tres líneas: qué problema resuelve el proyecto, con qué datos y qué resultado final se obtiene (dashboard, modelo…).*
+Objetivo: el mismo dashboard de análisis académico en Power BI que el Proyecto 1, pero partiendo de una fuente de datos relacional en lugar de documental — practicar el pipeline completo con el otro paradigma de origen de datos habitual en proyectos reales.
 
-[Descripción]
 
 ## Arquitectura
 
