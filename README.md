@@ -1,68 +1,57 @@
-## Fuentes de datos
+# Proyecto 2 · Analítica académica ITACA (origen relacional)
 
-### Mecanismo de acceso
-Las cuatro tablas se extraen de una base de datos **PostgreSQL 16** (réplica de ejemplo de ITACA,
-CIPFP Mislata) que corre en Docker (`bigdata-postgres`, puerto 5432). La conexión se hace desde
-Python con el driver `psycopg2` (el equivalente en Python a un conector JDBC): una consulta
-`SELECT` por tabla.
+## Descripción y objetivo
 
-### Autenticación
-- Usuario dedicado **`lectura_bigdata`** con permiso **solo de `SELECT`** sobre las 4 tablas
-  (principio de mínimo privilegio: la ingesta no puede modificar ni borrar datos).
-- Las credenciales se leen del fichero `.env` (no versionado). Plantilla en `.env.example`.
+Objetivo: el mismo dashboard de análisis académico en Power BI que el Proyecto 1, pero partiendo de una fuente de datos relacional en lugar de documental — practicar el pipeline completo con el otro paradigma de origen de datos habitual en proyectos reales.
 
-### Tablas y campos
+## Arquitectura
 
-| Tabla | Clave | Campos principales | Contiene datos personales |
-|---|---|---|---|
-| `alumnos` | `nia` + `anyo` | nia, curso, grupo, turno, ensenanza, repite, estado_matricula, anyo (+ nombre, apellidos, documento, email, teléfonos, sip, fecha_nac...) | **Sí** |
-| `contenidos` (módulos) | `codigo` + `curso` + `anyo` | codigo, nombre_cas, nombre_val, ensenanza, curso, anyo | No |
-| `calificaciones` | `alumno` + `contenido` + `evaluacion` + `anyo` | evaluacion, alumno (=NIA), curso, contenido, nota_numerica, tipo_nota, anyo | **Sí** (NIA) |
-| `cursos` | `codigo` + `anyo` | codigo, nombre_cas, nombre_val, abreviatura, padre, anyo | No |
-
-Relaciones: `calificaciones.alumno → alumnos.nia`, `calificaciones.contenido → contenidos.codigo`,
-`alumnos.curso / contenidos.curso / calificaciones.curso → cursos.codigo`,
-`cursos.padre → cursos.codigo` (jerarquía ciclo → curso).
-
-Datos disponibles: cursos 2021-22 a 2025-26.
-
-### Frecuencia de actualización
-- `alumnos`, `cursos`, `contenidos`: cambian al **inicio de cada curso** (matrícula, septiembre),
-  con ajustes puntuales. Ingesta **anual**, más alguna recarga en octubre.
-- `calificaciones`: cambian **después de cada evaluación** (01, 02, FI, EX). Ingesta **por evaluación**
-  (unas 4 veces al año).
-
+```mermaid
+graph LR
+    A[(PostgreSQL ITACA)] -->|psycopg2| B[Ingesta Python + anonimización]
+    B --> C[data/raw JSON]
+    C --> D[Procesamiento]
+    D --> E[Power BI]
+```
 
 ## Fuentes de datos
 
-### Mecanismo de acceso
-Las cuatro tablas se extraen de una base de datos **PostgreSQL 16** (réplica de ejemplo de ITACA,
-CIPFP Mislata) que corre en Docker (`bigdata-postgres`, puerto 5432). La conexión se hace desde
-Python con el driver `psycopg2` (el equivalente en Python a un conector JDBC): una consulta
-`SELECT` por tabla.
+Uso los dumps SQL de ejemplo de ITACA que nos dio el profesor (CIPFP Mislata, cursos 2021-22 a 2025-26), cargados en un PostgreSQL en Docker (BD `itaca`, puerto 5432).
 
-### Autenticación
-- Usuario dedicado **`lectura_bigdata`** con permiso **solo de `SELECT`** sobre las 4 tablas
-  (principio de mínimo privilegio: la ingesta no puede modificar ni borrar datos).
-- Las credenciales se leen del fichero `.env` (no versionado). Plantilla en `.env.example`.
+- **Acceso:** conexión desde Python con `psycopg2` (el equivalente a JDBC), un `SELECT` por tabla.
+- **Credenciales:** usuario `lectura_bigdata` con permiso solo de `SELECT` sobre las 4 tablas. Los datos de conexión van en `.env`, que no se sube (plantilla en `.env.example`). El usuario se crea con [`SQL/preparacion_bd.sql`](SQL/preparacion_bd.sql).
+- **Frecuencia:** alumnos, cursos y contenidos cambian una vez al año (matrícula); calificaciones, tras cada evaluación.
 
-### Tablas y campos
+| Tabla | Campos (columna en la BD si cambia el nombre) |
+|---|---|
+| alumnos | anyo, nia, curso, turno, grupo |
+| contenidos | anyo, curso, modulo (`codigo`), nombre_modulo (`nombre_cas`) |
+| calificaciones | anyo, nia (`alumno`), curso, modulo (`contenido`), nota (`nota_numerica`), evaluacion |
+| cursos | anyo, codigo, nombre_cas, padre |
 
-| Tabla | Clave | Campos principales | Contiene datos personales |
-|---|---|---|---|
-| `alumnos` | `nia` + `anyo` | nia, curso, grupo, turno, ensenanza, repite, estado_matricula, anyo (+ nombre, apellidos, documento, email, teléfonos, sip, fecha_nac...) | **Sí** |
-| `contenidos` (módulos) | `codigo` + `curso` + `anyo` | codigo, nombre_cas, nombre_val, ensenanza, curso, anyo | No |
-| `calificaciones` | `alumno` + `contenido` + `evaluacion` + `anyo` | evaluacion, alumno (=NIA), curso, contenido, nota_numerica, tipo_nota, anyo | **Sí** (NIA) |
-| `cursos` | `codigo` + `anyo` | codigo, nombre_cas, nombre_val, abreviatura, padre, anyo | No |
+## Bitácora de prácticas
 
-Relaciones: `calificaciones.alumno → alumnos.nia`, `calificaciones.contenido → contenidos.codigo`,
-`alumnos.curso / contenidos.curso / calificaciones.curso → cursos.codigo`,
-`cursos.padre → cursos.codigo` (jerarquía ciclo → curso).
+### Bloque 1 · P2 — Ingesta ITACA desde BD relacional
 
-Datos disponibles: cursos 2021-22 a 2025-26.
+**Qué he hecho:**
+1. Revisé la BD y vi que los módulos están en la tabla `contenidos` y que algunos campos tienen otro nombre (`alumno` es el NIA, `contenido` es el módulo...).
+2. Creé el usuario `lectura_bigdata` de solo lectura. Lo probé: un `DELETE` da `InsufficientPrivilege`.
+3. Completé [`ingesta/ingesta_itaca_bd.py`](ingesta/ingesta_itaca_bd.py), que extrae las 4 tablas, anonimiza el NIA y guarda cada una en `data/raw/<tabla>_<fecha>.json`.
+4. Hice [`ingesta/validar_raw.py`](ingesta/validar_raw.py) para comprobar el resultado sin tener que revisar los JSON a mano.
 
-### Frecuencia de actualización
-- `alumnos`, `cursos`, `contenidos`: cambian al **inicio de cada curso** (matrícula, septiembre),
-  con ajustes puntuales. Ingesta **anual**, más alguna recarga en octubre.
-- `calificaciones`: cambian **después de cada evaluación** (01, 02, FI, EX). Ingesta **por evaluación**
-  (unas 4 veces al año).
+```bash
+python ingesta/ingesta_itaca_bd.py
+python ingesta/validar_raw.py
+```
+
+**Resultado:** alumnos 7.193 filas, contenidos 1.688, calificaciones 106.814 y cursos 413. La validación pasa: no queda ningún NIA real, los campos son solo los del modelo y las relaciones entre tablas cuadran.
+
+![Ingesta](docs/img/p2_ingesta.png)
+![Validación](docs/img/p2_validacion.png)
+
+**Decisiones:**
+- **Solo extraigo los campos del modelo** (`SELECT columna AS campo`) en vez de `SELECT *`. Así el nombre, DNI, email, etc. del alumnado ni siquiera salen de la BD.
+- **El NIA lo anonimizo con HMAC-SHA256 y una clave secreta** (`NIA_SALT` en `.env`). Con un SHA-256 normal, al ser solo 8 dígitos, se podría sacar el NIA original probando todos los números.
+- **El hash se calcula una vez por NIA y se reutiliza**, así el mismo alumno tiene el mismo identificador en alumnos y calificaciones. Para comprobarlo, cuento las calificaciones sin alumno: salen 188 tanto en raw como en la BD original.
+- **En raw no limpio nada.** Hay 188 calificaciones de alumnos que no están en `alumnos` y algunas filas duplicadas; eso viene así de origen y lo trataré en el procesamiento.
+- **No subo a Git** los dumps del profesor ni `data/raw/`, porque llevan datos personales.

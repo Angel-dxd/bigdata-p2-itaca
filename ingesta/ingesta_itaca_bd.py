@@ -2,7 +2,9 @@
 
 import os
 import sys
+import hmac
 import json
+import hashlib
 import logging
 from datetime import date
 from pathlib import Path
@@ -19,18 +21,41 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ingesta_itaca_bd")
 
-TABLAS = ["alumnos", "contenidos", "calificaciones", "cursos"]
-VARIABLES_BD = ["DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD"]
+# Modelo de datos del enunciado: tabla -> {campo del modelo: columna en la BD}.
+# Solo se extraen estos campos (lista blanca), así ningún dato personal sale de la BD.
+MODELO = {
+    "alumnos": {
+        "anyo": "anyo", "nia": "nia", "curso": "curso", "turno": "turno", "grupo": "grupo",
+    },
+    "contenidos": {
+        "anyo": "anyo", "curso": "curso", "modulo": "codigo", "nombre_modulo": "nombre_cas",
+    },
+    "calificaciones": {
+        "anyo": "anyo", "nia": "alumno", "curso": "curso", "modulo": "contenido",
+        "nota": "nota_numerica", "evaluacion": "evaluacion",
+    },
+    "cursos": {
+        "anyo": "anyo", "codigo": "codigo", "nombre_cas": "nombre_cas", "padre": "padre",
+    },
+}
+TABLAS = list(MODELO)
+VARIABLES_REQUERIDAS = ["DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD", "NIA_SALT"]
+
+# Campo del modelo que contiene el NIA (se sustituye por un hash)
+CAMPO_NIA = "nia"
 
 # data/raw relativo a la raíz del proyecto, no al directorio desde el que se ejecute
 RAIZ_PROYECTO = Path(__file__).resolve().parent.parent
 DIR_RAW = RAIZ_PROYECTO / "data" / "raw"
 
 
-def conectar():
-    faltan = [v for v in VARIABLES_BD if not os.getenv(v)]
+def comprobar_entorno() -> None:
+    faltan = [v for v in VARIABLES_REQUERIDAS if not os.getenv(v)]
     if faltan:
         raise RuntimeError(f"Faltan variables en .env: {', '.join(faltan)}")
+
+
+def conectar():
     return psycopg2.connect(
         host=os.getenv("DB_HOST"), port=os.getenv("DB_PORT"),
         dbname=os.getenv("DB_NAME"), user=os.getenv("DB_USER"),
@@ -40,13 +65,43 @@ def conectar():
 
 
 def extraer_tabla(conexion, tabla: str) -> list[dict]:
-    # sql.Identifier escapa el nombre de la tabla (evita inyección SQL en vez de usar f-strings)
-    consulta = sql.SQL("SELECT * FROM {}").format(sql.Identifier(tabla))
+    # SELECT columna AS campo, ... con sql.Identifier, que escapa los nombres
+    # (evita inyección SQL en vez de usar f-strings)
+    campos = sql.SQL(", ").join(
+        sql.SQL("{} AS {}").format(sql.Identifier(columna), sql.Identifier(campo))
+        for campo, columna in MODELO[tabla].items()
+    )
+    consulta = sql.SQL("SELECT {} FROM {}").format(campos, sql.Identifier(tabla))
     with conexion.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(consulta)
         filas = [dict(fila) for fila in cur.fetchall()]
     logger.info("Extraídas %d filas de '%s'", len(filas), tabla)
     return filas
+
+
+# Caché NIA original -> NIA anonimizado: cada NIA se calcula una vez y se reutiliza
+# en todas las tablas, de modo que alumnos y calificaciones siguen cruzándose.
+_nias_anonimizados: dict[str, str] = {}
+
+
+def anonimizar_nia(nia: str) -> str:
+    nia = str(nia).strip()
+    if nia not in _nias_anonimizados:
+        # HMAC-SHA256 con clave secreta: sin NIA_SALT no se puede revertir probando
+        # todos los NIA posibles (un SHA-256 simple de 8 dígitos se rompe en segundos).
+        clave = os.environ["NIA_SALT"].encode()
+        digest = hmac.new(clave, nia.encode(), hashlib.sha256).hexdigest()
+        _nias_anonimizados[nia] = digest[:10]
+    return _nias_anonimizados[nia]
+
+
+def anonimizar(datos: list[dict], tabla: str) -> list[dict]:
+    if CAMPO_NIA not in MODELO[tabla]:
+        return datos
+    for fila in datos:
+        fila[CAMPO_NIA] = anonimizar_nia(fila[CAMPO_NIA])
+    logger.info("Anonimizado el NIA de %d filas de '%s'", len(datos), tabla)
+    return datos
 
 
 def guardar(datos: list[dict], nombre: str) -> Path:
@@ -60,8 +115,13 @@ def guardar(datos: list[dict], nombre: str) -> Path:
 
 def main() -> int:
     try:
+        comprobar_entorno()
+    except RuntimeError as e:
+        logger.error("Configuración incompleta: %s", e)
+        return 1
+    try:
         conexion = conectar()
-    except (RuntimeError, psycopg2.OperationalError) as e:
+    except psycopg2.OperationalError as e:
         logger.error("No se pudo conectar a la BD: %s", e)
         return 1
 
@@ -69,7 +129,7 @@ def main() -> int:
     try:
         for tabla in TABLAS:
             try:
-                guardar(extraer_tabla(conexion, tabla), tabla)
+                guardar(anonimizar(extraer_tabla(conexion, tabla), tabla), tabla)
             except psycopg2.Error as e:
                 logger.error("Error extrayendo '%s': %s", tabla, e)
                 conexion.rollback()  # deja la conexión usable para la siguiente tabla

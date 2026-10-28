@@ -6,8 +6,9 @@ data/*.json
 !.env.example
 *.pem
 
-# Dumps de datos de ITACA (contienen datos personales)
-SQL/*_20*.sql
+# Dumps de datos de ITACA del docente (contienen datos personales)
+SQL/*.sql
+!SQL/preparacion_bd.sql
 
 # Entornos Python
 .venv/
