@@ -37,17 +37,15 @@ Uso los dumps SQL de ejemplo de ITACA que nos dio el profesor (CIPFP Mislata, cu
 1. Revisé la BD y vi que los módulos están en la tabla `contenidos` y que algunos campos tienen otro nombre (`alumno` es el NIA, `contenido` es el módulo...).
 2. Creé el usuario `lectura_bigdata` de solo lectura. Lo probé: un `DELETE` da `InsufficientPrivilege`.
 3. Completé [`ingesta/ingesta_itaca_bd.py`](ingesta/ingesta_itaca_bd.py), que extrae las 4 tablas, anonimiza el NIA y guarda cada una en `data/raw/<tabla>_<fecha>.json`.
-4. Hice [`ingesta/validar_raw.py`](ingesta/validar_raw.py) para comprobar el resultado sin tener que revisar los JSON a mano.
 
 ```bash
 python ingesta/ingesta_itaca_bd.py
-python ingesta/validar_raw.py
 ```
 
-**Resultado:** alumnos 7.193 filas, contenidos 1.688, calificaciones 106.814 y cursos 413. La validación pasa: no queda ningún NIA real, los campos son solo los del modelo y las relaciones entre tablas cuadran.
+**Resultado:** alumnos 7.193 filas, contenidos 1.688, calificaciones 106.814 y cursos 413. He comprobado que no queda ningún NIA real, que cada JSON tiene solo los campos del modelo y que las relaciones entre tablas cuadran (todo módulo de calificaciones existe en contenidos y todo curso existe en cursos).
 
 ![Ingesta](docs/img/p2_ingesta.png)
-![Validación](docs/img/p2_validacion.png)
+![JSON de alumnos con el NIA anonimizado](docs/img/p2_json.png)
 
 **Decisiones:**
 - **Solo extraigo los campos del modelo** (`SELECT columna AS campo`) en vez de `SELECT *`. Así el nombre, DNI, email, etc. del alumnado ni siquiera salen de la BD.
