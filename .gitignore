@@ -3,7 +3,11 @@ data/raw/
 data/*.csv
 data/*.json
 .env
+!.env.example
 *.pem
+
+# Dumps de datos de ITACA (contienen datos personales)
+SQL/*_20*.sql
 
 # Entornos Python
 .venv/
@@ -18,3 +22,6 @@ docker-volumes/
 
 # MkDocs
 site/
+
+# macOS
+.DS_Store
