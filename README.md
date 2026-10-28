@@ -16,7 +16,7 @@ graph LR
 
 ## Fuentes de datos
 
-Uso los dumps SQL de ejemplo de ITACA que nos dio el profesor (CIPFP Mislata, cursos 2021-22 a 2025-26), cargados en un PostgreSQL en Docker (BD `itaca`, puerto 5432).
+Uso los dumps SQL de ejemplo de ITACA del zip que nos dio el profesor en la web del centro (CIPFP Mislata, cursos 2021-22 a 2025-26), cargados en un PostgreSQL en Docker (BD `itaca`, puerto 5432).
 
 - **Acceso:** conexión desde Python con `psycopg2` (el equivalente a JDBC), un `SELECT` por tabla.
 - **Credenciales:** usuario `lectura_bigdata` con permiso solo de `SELECT` sobre las 4 tablas. Los datos de conexión van en `.env`, que no se sube (plantilla en `.env.example`). El usuario se crea con [`SQL/preparacion_bd.sql`](SQL/preparacion_bd.sql).
@@ -34,11 +34,14 @@ Uso los dumps SQL de ejemplo de ITACA que nos dio el profesor (CIPFP Mislata, cu
 ### Bloque 1 · P2 — Ingesta ITACA desde BD relacional
 
 **Qué he hecho:**
-1. Revisé la BD y vi que los módulos están en la tabla `contenidos` y que algunos campos tienen otro nombre (`alumno` es el NIA, `contenido` es el módulo...).
+1. Revisé la BD y vi que los módulos están en la tabla `contenidos` y que algunos campos tienen otro nombre (`alumno` es el NIA, `contenido` es el módulo...). Trabajo con las 4 tablas del modelo (alumnos, contenidos, calificaciones y cursos); el "cinco tablas" del enunciado es una errata.
 2. Creé el usuario `lectura_bigdata` de solo lectura. Lo probé: un `DELETE` da `InsufficientPrivilege`.
-3. Completé [`ingesta/ingesta_itaca_bd.py`](ingesta/ingesta_itaca_bd.py), que extrae las 4 tablas, anonimiza el NIA y guarda cada una en `data/raw/<tabla>_<fecha>.json`.
+3. Preparé el entorno y el `.env` (copiando `.env.example` y poniendo la contraseña y el `NIA_SALT`).
+4. Completé [`ingesta/ingesta_itaca_bd.py`](ingesta/ingesta_itaca_bd.py), que extrae las 4 tablas, anonimiza el NIA y guarda cada una en `data/raw/<tabla>_<fecha>.json`.
 
 ```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install psycopg2-binary python-dotenv pandas
 python ingesta/ingesta_itaca_bd.py
 ```
 
